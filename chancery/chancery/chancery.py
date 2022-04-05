@@ -9,8 +9,8 @@ from idlelib.percolator import Percolator as percolator
 from tkinter import *
 from tkinter import ttk
 from tkinter import scrolledtext, filedialog, messagebox, font
-from testapi import Definition as df
-from testapi import testAPI as api
+from chancery.testapi import Definition as df
+from chancery.testapi import testAPI as api
 
 class Application:
     def __init__(self, master=None, filename=None):
@@ -590,7 +590,10 @@ class Application:
 
     def text_edited(self, e):
         """ Trigger the status to unsave whenever an keyboard event happens in the test widget. """
-        if e.state == 20:
+        pass_keys = ['Left', 'Up', 'Right', 'Down', 'Control_L', 'Alt_L', 'ISO_Level3_Shift', 
+                     'Shift_R', 'Shift_L', 'Caps_Lock', 'Insert', 'Home', 'End', 'Next', 
+                     'Prior', 'Num_Lock', 'Scroll_Lock']
+        if e.keysym in pass_keys:
             pass
         else:
             self.is_saved = False
@@ -604,7 +607,7 @@ class Application:
     def show_about(self):
         """ Shows the About window. """
         lines = [
-            'openQA Scripting Tool',
+            'Chancery',
             'version 0.9',
             '',
             'a basic text editor with pre-created openQA snippets that enables developing openQA test scripts more rapidly.',
@@ -612,7 +615,7 @@ class Application:
             'This tool is open software developed under the GPL license.',
             '',
             'Created by Lukáš Růžička (lruzicka@redhat.com)',
-            'Fedora QA Team (2021)'
+            'Red Hat (2022)'
         ]
         text = '\n'.join(lines)
         about = Toplevel()
