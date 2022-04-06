@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chancery"
-version = "0.9.1"
+version = "0.9.4"
 description = "Chancery is a simple text editor with predefined openQA snippets."
 authors = ["Lukáš Růžička <lruzicka@redhat.com>"]
 license = "GPL-3.0-or-later"
@@ -8,6 +8,7 @@ readme = "README.rst"
 
 [tool.poetry.dependencies]
 python = "^3.10"
+needly = "^2.5.61"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2"

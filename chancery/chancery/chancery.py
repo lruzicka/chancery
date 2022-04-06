@@ -1,16 +1,24 @@
 #!/usr/bin/python3
 
+import io
+import json
+import libvirt
 import os
+import multiprocessing
 import re
 import sys
+import subprocess
 import webbrowser
 import idlelib.colorizer as colorizer
 from idlelib.percolator import Percolator as percolator
+from needly import needly
 from tkinter import *
 from tkinter import ttk
 from tkinter import scrolledtext, filedialog, messagebox, font
 from chancery.testapi import Definition as df
 from chancery.testapi import testAPI as api
+from chancery.needler import Application as needler
+from PIL import Image
 
 class Application:
     def __init__(self, master=None, filename=None):
@@ -34,10 +42,14 @@ class Application:
         self.mainframe.columnconfigure(1, weight=5)
         self.mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
         # Set up status variables
-        self.db = api.show_definitions()
-        self.filetosave = None
-        self.is_saved = True
-        self.comments_on = IntVar()
+        self.db = api.show_definitions() # Snippets from the testapi database
+        self.filetosave = None # A filename to save the content into.
+        self.is_saved = True # If the file is saved
+        self.comments_on = IntVar() # Comments are switched on
+        self.args_on = IntVar() # Arguments are switched on
+        self.kvm = None # Connection to KVM
+        self.virtual_machine = None # Holds the name of the connected virtual machine.
+        self.latest_needle_taken = None
 
         # Set up the Syntax Highlighting
         self.scheme = colorizer.ColorDelegator()
@@ -120,6 +132,7 @@ class Application:
         self.menu_mouse.add_separator()
         self.menu_mouse.add_command(label="Set mouse location", accelerator="Alt-M-P", command=lambda: self.database('mouse', 'Set mouse location'))
         self.menu_mouse.add_command(label="Hide mouse cursor", accelerator="Alt-M-H", command=lambda: self.database('mouse', 'Hide mouse'))
+        
         # Create the Variable submenu
         self.menu_variable = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_variable,label='Variables')
@@ -129,6 +142,7 @@ class Application:
         self.menu_variable.add_command(label="Check variable value", accelerator="Alt-R-C", command=lambda: self.database('variable', 'Check variable'))
         self.menu_variable.add_command(label="Read variable as list", accelerator="Alt-R-L", command=lambda: self.database('variable', 'Read variable as list'))
         self.menu_variable.add_command(label="Check value in list of variables", accelerator="Alt-R-O", command=lambda: self.database('variable', 'Check value in list of variables'))
+        
         # Create the Script submenu
         self.menu_script = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_script,label='Scripts')
@@ -149,12 +163,14 @@ class Application:
         self.menu_script.add_command(label="Hash the string with MD5", accelerator="Alt-S-M", command=lambda: self.database('script', 'Hash the string with MD5'))
         self.menu_script.add_separator()
         self.menu_script.add_command(label="Start GUI application", accelerator="Alt-S-X", command=lambda: self.database('script', 'Start GUI application'))
+        
         # Create the Log submenu
         self.menu_log = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_log,label='Logs')
         self.menu_log.add_command(label="Log a diagnostic message", accelerator="Alt-L-M", command=lambda: self.database('logs', 'Log a message'))
         self.menu_log.add_command(label="Upload logs", accelerator="Alt-L-U", command=lambda: self.database('logs', 'Upload logs'))
         self.menu_log.add_command(label="Upload asset", accelerator="Alt-L-A", command=lambda: self.database('logs', 'Upload asset'))
+        
         # Create the Helpers submenu
         self.menu_helpers = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_helpers,label='Helpers')
@@ -163,6 +179,7 @@ class Application:
         self.menu_helpers.add_command(label="Get the data asset URL", accelerator="Alt-H-D", command=lambda: self.database('helper', 'Get data asset url'))
         self.menu_helpers.add_command(label="Make arguments compatible", accelerator="Alt-H-C", command=lambda: self.database('helper', 'Make arguments compatible'))
         self.menu_helpers.add_command(label="Show Curl progress meter", accelerator="Alt-H-P", command=lambda: self.database('helper', 'Show curl progress'))
+        
         # Create the Misc submenu
         self.menu_misc = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_misc,label='Misc')
@@ -176,6 +193,7 @@ class Application:
         self.menu_misc.add_command(label="Resume the VM", accelerator="Alt-M-R", command=lambda: self.database('misc', 'Resume the VM'))
         self.menu_misc.add_command(label="Parse jUnit log", accelerator="Alt-M-J", command=lambda: self.database('misc', 'Parse junit log'))
         self.menu_misc.add_command(label="Parse extra log", accelerator="Alt-M-L", command=lambda: self.database('misc', 'Parse extra log'))
+        
         # Create the Perl submenu
         self.menu_perl = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_perl,label='Perl')
@@ -188,6 +206,14 @@ class Application:
         self.menu_perl.add_command(label="SUB take single argument", accelerator="Alt-P-R", command=lambda: self.perl_snippets('arg'))
         self.menu_perl.add_command(label="SUB take multiple arguments", accelerator="Alt-P-M", command=lambda: self.perl_snippets('args'))
         self.menu_perl.add_command(label="UNLESS clause", accelerator="Alt-P-U", command=lambda: self.perl_snippets('unless'))
+        
+        # Create the Virtual submenu
+        self.menu_vm = Menu(self.menubar)
+        self.menubar.add_cascade(menu=self.menu_vm, label='VirtMachine')
+        self.menu_vm.add_command(label="Connect to VM", accelerator="Alt-X-C", command=lambda: self.show_connect_vm())
+        self.menu_vm.add_command(label="Create needle", accelerator="Alt-X-T", command=lambda: self.show_create_needle()) 
+        self.menu_vm.add_command(label="Edit needle", accelerator="Alt-X-E", command=lambda: self.edit_needle())
+
         # Create the Help
         self.menu_help = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_help,label='Help')
@@ -195,7 +221,7 @@ class Application:
         self.menu_help.add_command(label="openQA TestApi Documentation", command=lambda: self.show_docs('testapi'))
         self.menu_help.add_command(label="openQA Documentation", command=lambda: self.show_docs('docs'))
         self.menu_help.add_separator()
-        self.menu_help.add_command(label="About", command=self.show_about)
+        self.menu_help.add_command(label="About", command=lambda: show_about(self.toplevel))
          
         # Register the menubar with the main application
         self.toplevel['menu'] = self.menubar
@@ -217,6 +243,7 @@ class Application:
         self.buttons.rowconfigure(9, weight=1)
         self.buttons.rowconfigure(10, weight=1)
         self.buttons.rowconfigure(11, weight=1)
+        self.buttons.rowconfigure(12, weight=1)
         self.buttons.columnconfigure(0, weight=1)
 
         # Define buttons
@@ -256,6 +283,11 @@ class Application:
         self.comments = ttk.Checkbutton(self.buttons, text="Include comments", variable=self.comments_on, onvalue=1, offvalue=0)
         self.comments.grid(column=0, row=12, sticky=(N,S,E,W), pady='1')
         self.comments_on.set(True)
+
+        self.args = ttk.Checkbutton(self.buttons, text="Include arguments", variable=self.args_on, onvalue=1, offvalue=0)
+        self.args.grid(column=0, row=13, sticky=(N,S,E,W), pady='1')
+        self.args_on.set(True)
+    
 
     def regex_api_commands(self):
         """ Walk over the database and pick commands to list
@@ -387,6 +419,9 @@ class Application:
         self.toplevel.bind("<Alt-p><r>", lambda x: self.perl_snippets('arg'))
         self.toplevel.bind("<Alt-p><m>", lambda x: self.perl_snippets('args'))
         self.toplevel.bind("<Alt-p><u>", lambda x: self.perl_snippets('unless'))
+        # Accelerators for the Virtual menu
+        self.toplevel.bind("<Alt-x><v>", lambda x: self.show_connect_vm())
+        self.toplevel.bind("<Alt-x><t>", lambda x: self.show_create_needle())
         # Accelerators for the About menu
         self.toplevel.bind("<F1>", lambda x: self.show_docs('help'))
         # Accelerators for usual application stuff
@@ -457,7 +492,12 @@ class Application:
             if c.name == record:
                 data = c
         # When the data is found it is placed into the text widget.
-        if data and self.comments_on.get() == 0:
+        if data and self.comments_on.get() == 0 and self.args_on.get() == 0:
+            self.put_into_text(data.display_command())
+        elif data and self.args_on.get() == 0:
+            self.put_into_text(data.describe())
+            self.put_into_text(data.display_command())
+        elif data and self.comments_on.get() == 0:
             self.put_into_text(data.display_syntax())
         elif data:
             self.put_into_text(data.all())
@@ -604,26 +644,6 @@ class Application:
         # This methods supplies the Ctrl-A combination that is not supported by the Text widget per se.
         self.text.tag_add('sel', '1.0', 'end')
 
-    def show_about(self):
-        """ Shows the About window. """
-        lines = [
-            'Chancery',
-            'version 0.9',
-            '',
-            'a basic text editor with pre-created openQA snippets that enables developing openQA test scripts more rapidly.',
-            '',
-            'This tool is open software developed under the GPL license.',
-            '',
-            'Created by Lukáš Růžička (lruzicka@redhat.com)',
-            'Red Hat (2022)'
-        ]
-        text = '\n'.join(lines)
-        about = Toplevel()
-        about.wm_title('About')
-        about.columnconfigure(0, weight=1)
-        about.rowconfigure(0, weight=1)
-        ttk.Label(about,text=text, wraplength=180, justify="center").grid(column=0, row=0, sticky='nsew', pady=20, padx=10)
-        ttk.Button(about, text="Close", command=about.destroy).grid(column=0,row=1)
 
     def show_docs(self, doctype):
         """ Open external web resources to cover for Help and Documentation. """
@@ -632,15 +652,147 @@ class Application:
         elif doctype == 'docs':
             url = 'http://open.qa/documentation/'
         elif doctype == 'help':
-            url = 'https://pagure.io/fedora-qa/openQA_scripting_tool'
+            url = 'https://lruzicka.github.io/chancery/'
         webbrowser.open_new(url)
 
     def insert_tab(self):
         """ Inserts four spaces into the text, when tab is pressed. """
         self.put_into_text("   ")
 
-################################################################################################
+
+    def show_connect_vm(self):
+        """ Show a dialogue to connect to a VM """
+        # Create the basic GUI for the dialogue
+        self.connect_dialogue = Toplevel(self.toplevel)
+        self.connect_dialogue.title('Connect to a VM')
+        self.cd_layout = Frame(self.connect_dialogue)
+        self.cd_layout.grid()
+        self.cd_label = Label(self.cd_layout, text='Choose a VM:', padx=10, pady=5)
+        self.cd_label.grid(row=0, column=0)
+        choices = StringVar()
+        self.cd_choose_box = ttk.Combobox(self.cd_layout, textvariable=choices, height=3)
+        self.cd_choose_box.grid(row=0, column=1)
+        self.cd_connect = Button(self.cd_layout, text="Connect", width=10, command=lambda: self.connect_vm())
+        self.cd_connect.grid(row=1, column=1)
+        # Get the domain names from the kvm hypervisor
+        try:
+            self.kvm = libvirt.open("qemu:///session")
+            # Get the names of all running domains in the hypervisor.
+            domains = [x.name() for x in self.kvm.listAllDomains()]
+            if len(domains) == 0:
+                messagebox.showerror("No domains found", "Either the hypervisor is not running or no VMs available in the qemu:///session.")
+            self.cd_choose_box['values'] = domains
+        except libvirt.libvirtError:
+            messagebox.showerror("Error", "Failed to open connection to the hypervisor.")
+            self.cd_choose_box['values'] = []
+
+    def connect_vm(self):
+        """ Updates the status variable with the correct KVM entry. """
+        selected = self.cd_choose_box.get()
+        if not selected:
+            messagebox.showerror("No VM selected", "Please, select one of the available VMs.")
+        else:
+            self.virtual_machine = selected
+            self.connect_dialogue.destroy()
+            messagebox.showinfo("Connected successfully", f"The application is now able to take pictures from the {selected} virtual machine.")
+
+    def show_create_needle(self):
+        """ Show a dialogue to create a needle. """
+        # Create the basic GUI for the dialogue if the file is saved.
+        if self.filetosave:
+            self.dneedle = Toplevel(self.toplevel)
+            self.dneedle.title('Take a VM screenshot.')
+            self.dframe = ttk.Frame(self.dneedle)
+            self.dframe.grid()
+            self.dlabel = ttk.Label(self.dframe, text='Set the primary tag:')
+            self.dlabel.grid(row=0, column=0)
+            self.dentry = ttk.Entry(self.dframe, width=30)
+            self.dentry.grid(row=1, column=0)
+            self.dtake = ttk.Button(self.dframe, text="Create needle", command=lambda: self.create_needle())
+            self.dtake.grid(row=2, column=0)
+        else:
+            messagebox.showerror("File not saved", "Save the file before you attempt to create needles.")
+            
+
+    def create_needle(self):
+        needlename = self.dentry.get()
+        # Take the screenshot from the virtual machine.
+        path = f"{os.path.dirname(self.filetosave)}/{needlename}"
+        self.last_needle_taken = path
+        screen = take_screenshot(self.virtual_machine, self.kvm, path)
+        # Close the window
+        self.dneedle.destroy()
+        self.put_into_text(f'"{needlename}"')
+
+    def edit_needle(self):
+        screenshot = f"{self.last_needle_taken}.png"
+        subprocess.run(["needly", screenshot])
+
+###############################################################################################
+## Here, methods not dependent on the main application window are defined.
+
+def show_about(topwindow):
+    """ Displays the About window. The method takes the toplevel widget
+    under which it should display. """
+    # Define the GUI of the dialogue
+    titlefont = font.Font(size=14, weight="bold")
+    title = "Chancery (0.9)"
+    lines = [
+        'a basic text editor with pre-created openQA snippets that enables developing openQA test scripts more rapidly.',
+        '',
+        'This tool is open software developed under the GPL license.',
+        '',
+        'Created by Lukáš Růžička (lruzicka@redhat.com)',
+        'Red Hat (2022)'
+    ]
+    text = '\n'.join(lines)
+    about = Toplevel(topwindow)
+    about.wm_title('About')
+    about.columnconfigure(0, weight=1)
+    about.rowconfigure(0, weight=1)
+    ttk.Label(about, text=title, font=titlefont).grid(column=0, row=0, sticky='nsew', pady=20, padx=10)
+    ttk.Label(about, text=text, wraplength=200).grid(column=0, row=1, sticky='nsew', pady=20, padx=10)
+    ttk.Button(about, text="Close", command=about.destroy).grid(column=0,row=2)
     
+def take_screenshot(virtual_machine, hypervisor, tagfilename="screenshot.png"):
+    """ Take the screenshot from the running virtual machine. As only .ppm files
+    are possible, use imagemagick to convert the shot into a .png file and save
+    it. 
+    It takes the virtual_machine's name, the hypervisor connection, and the tagfilename
+    as arguments. 
+    """
+
+    # When no VM has been previously selected, there is no need 
+    # to try and take screenshots.
+    # Use the domain name to get the domain object
+    domain = hypervisor.lookupByName(virtual_machine)
+    # Create a stream to the hypervisor
+    stream = hypervisor.newStream()
+    # Collect the available image type of the first screen
+    # On a VM usually only one screen is available, 
+    # so we will take the first one and will not bother
+    # about others.
+    image_type = domain.screenshot(stream, 0)
+    # The stream will be caught in an envelope
+    image_data = io.BytesIO()
+    # Now, let's take the data from the stream
+    part_stream = stream.recv(8192)
+    while part_stream != b'':
+        image_data.write(part_stream)
+        part_stream = stream.recv(8192)
+    # Convert and save the image
+    image_data.seek(0)
+    image = Image.open(image_data)
+    path = ""
+    save_as_name = f"{tagfilename}.png"
+    image.save(save_as_name, 'PNG')
+    image_data.close()
+    stream.finish()
+    # Update the status variable to have that last image available
+    path = os.path.join(os.path.abspath('.'), save_as_name)
+    # Return the path to the saved image
+    return path
+
 def main():
     # Read the arguments if there is a file name on the CLI.
     try:
