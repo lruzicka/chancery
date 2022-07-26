@@ -422,6 +422,7 @@ class Application:
         # Accelerators for the Virtual menu
         self.toplevel.bind("<Alt-x><v>", lambda x: self.show_connect_vm())
         self.toplevel.bind("<Alt-x><t>", lambda x: self.show_create_needle())
+        self.toplevel.bind("<Alt-x><e>", lambda x: self.edit_needle())
         # Accelerators for the About menu
         self.toplevel.bind("<F1>", lambda x: self.show_docs('help'))
         # Accelerators for usual application stuff
