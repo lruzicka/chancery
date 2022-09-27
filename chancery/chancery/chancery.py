@@ -11,7 +11,6 @@ import subprocess
 import webbrowser
 import idlelib.colorizer as colorizer
 from idlelib.percolator import Percolator as percolator
-from needly import needly
 from tkinter import *
 from tkinter import ttk
 from tkinter import scrolledtext, filedialog, messagebox, font

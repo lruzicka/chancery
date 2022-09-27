@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "chancery"
-version = "0.9.5"
+version = "0.9.6"
 description = "Chancery is a simple text editor with predefined openQA snippets."
 authors = ["Lukáš Růžička <lruzicka@redhat.com>"]
 license = "GPL-3.0-or-later"
