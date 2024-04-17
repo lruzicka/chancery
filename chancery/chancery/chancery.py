@@ -1,5 +1,24 @@
 #!/usr/bin/python3
 
+# Copyright 2022, Red Hat, Inc
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Authors:
+#   Lukáš Růžička <lruzicka@redhat.com>
+
 import io
 import json
 import libvirt
@@ -131,7 +150,7 @@ class Application:
         self.menu_mouse.add_separator()
         self.menu_mouse.add_command(label="Set mouse location", accelerator="Alt-M-P", command=lambda: self.database('mouse', 'Set mouse location'))
         self.menu_mouse.add_command(label="Hide mouse cursor", accelerator="Alt-M-H", command=lambda: self.database('mouse', 'Hide mouse'))
-        
+
         # Create the Variable submenu
         self.menu_variable = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_variable,label='Variables')
@@ -141,7 +160,7 @@ class Application:
         self.menu_variable.add_command(label="Check variable value", accelerator="Alt-R-C", command=lambda: self.database('variable', 'Check variable'))
         self.menu_variable.add_command(label="Read variable as list", accelerator="Alt-R-L", command=lambda: self.database('variable', 'Read variable as list'))
         self.menu_variable.add_command(label="Check value in list of variables", accelerator="Alt-R-O", command=lambda: self.database('variable', 'Check value in list of variables'))
-        
+
         # Create the Script submenu
         self.menu_script = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_script,label='Scripts')
@@ -162,14 +181,14 @@ class Application:
         self.menu_script.add_command(label="Hash the string with MD5", accelerator="Alt-S-M", command=lambda: self.database('script', 'Hash the string with MD5'))
         self.menu_script.add_separator()
         self.menu_script.add_command(label="Start GUI application", accelerator="Alt-S-X", command=lambda: self.database('script', 'Start GUI application'))
-        
+
         # Create the Log submenu
         self.menu_log = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_log,label='Logs')
         self.menu_log.add_command(label="Log a diagnostic message", accelerator="Alt-L-M", command=lambda: self.database('logs', 'Log a message'))
         self.menu_log.add_command(label="Upload logs", accelerator="Alt-L-U", command=lambda: self.database('logs', 'Upload logs'))
         self.menu_log.add_command(label="Upload asset", accelerator="Alt-L-A", command=lambda: self.database('logs', 'Upload asset'))
-        
+
         # Create the Helpers submenu
         self.menu_helpers = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_helpers,label='Helpers')
@@ -178,7 +197,7 @@ class Application:
         self.menu_helpers.add_command(label="Get the data asset URL", accelerator="Alt-H-D", command=lambda: self.database('helper', 'Get data asset url'))
         self.menu_helpers.add_command(label="Make arguments compatible", accelerator="Alt-H-C", command=lambda: self.database('helper', 'Make arguments compatible'))
         self.menu_helpers.add_command(label="Show Curl progress meter", accelerator="Alt-H-P", command=lambda: self.database('helper', 'Show curl progress'))
-        
+
         # Create the Misc submenu
         self.menu_misc = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_misc,label='Misc')
@@ -192,7 +211,7 @@ class Application:
         self.menu_misc.add_command(label="Resume the VM", accelerator="Alt-M-R", command=lambda: self.database('misc', 'Resume the VM'))
         self.menu_misc.add_command(label="Parse jUnit log", accelerator="Alt-M-J", command=lambda: self.database('misc', 'Parse junit log'))
         self.menu_misc.add_command(label="Parse extra log", accelerator="Alt-M-L", command=lambda: self.database('misc', 'Parse extra log'))
-        
+
         # Create the Perl submenu
         self.menu_perl = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_perl,label='Perl')
@@ -205,12 +224,12 @@ class Application:
         self.menu_perl.add_command(label="SUB take single argument", accelerator="Alt-P-R", command=lambda: self.perl_snippets('arg'))
         self.menu_perl.add_command(label="SUB take multiple arguments", accelerator="Alt-P-M", command=lambda: self.perl_snippets('args'))
         self.menu_perl.add_command(label="UNLESS clause", accelerator="Alt-P-U", command=lambda: self.perl_snippets('unless'))
-        
+
         # Create the Virtual submenu
         self.menu_vm = Menu(self.menubar)
         self.menubar.add_cascade(menu=self.menu_vm, label='VirtMachine')
         self.menu_vm.add_command(label="Connect to VM", accelerator="Alt-X-C", command=lambda: self.show_connect_vm())
-        self.menu_vm.add_command(label="Create needle", accelerator="Alt-X-T", command=lambda: self.show_create_needle()) 
+        self.menu_vm.add_command(label="Create needle", accelerator="Alt-X-T", command=lambda: self.show_create_needle())
         self.menu_vm.add_command(label="Edit needle", accelerator="Alt-X-E", command=lambda: self.edit_needle())
 
         # Create the Help
@@ -221,7 +240,7 @@ class Application:
         self.menu_help.add_command(label="openQA Documentation", command=lambda: self.show_docs('docs'))
         self.menu_help.add_separator()
         self.menu_help.add_command(label="About", command=lambda: show_about(self.toplevel))
-         
+
         # Register the menubar with the main application
         self.toplevel['menu'] = self.menubar
 
@@ -286,12 +305,12 @@ class Application:
         self.args = ttk.Checkbutton(self.buttons, text="Include arguments", variable=self.args_on, onvalue=1, offvalue=0)
         self.args.grid(column=0, row=13, sticky=(N,S,E,W), pady='1')
         self.args_on.set(True)
-    
+
 
     def regex_api_commands(self):
         """ Walk over the database and pick commands to list
         the into the tag database for syntax highlighting. """
-        # Iterate over all openqa commands in the test api 
+        # Iterate over all openqa commands in the test api
         # and add them to the lexer.
         commands = []
         for family in self.db:
@@ -303,11 +322,11 @@ class Application:
         # Also add selected Perl keywords because the lexer is based
         # on Python and therefore lacks the Perl stuff.
         # If more Perl keyboards should be recognized, they can be added here.
-        # Alternatively, there might be some external tool to cover in one 
+        # Alternatively, there might be some external tool to cover in one
         # of the future versions.
         perl = r'\b(?P<PERL>sub|use|my|run|unless|until|qx|qw|qr|qq|no|ne|foreach|elsif)\b|'
         return begin + mid + end + perl
-            
+
 
     def colorize(self):
         """ Update the lexer database with new items. """
@@ -315,7 +334,7 @@ class Application:
         openqa_keywords = self.regex_api_commands()
         self.scheme.prog = re.compile(openqa_keywords + self.pattern, re.S)
         self.scheme.idprog = re.compile(r'\s+(\w+)', re.S)
-        
+
     def create_text(self):
         """ Create the text widget. """
         self.text = scrolledtext.ScrolledText(self.mainframe)
@@ -453,9 +472,9 @@ class Application:
             pass
 
 ###############################  Below this line, we will define other useful methods for the application.
-    
+
     def update_title(self, status):
-        """ Prepare a title string to reflect if file is saved or not 
+        """ Prepare a title string to reflect if file is saved or not
         and show it in the title bar. """
         # If not saved, then produce * before the file name.
         if status == 'unsave':
@@ -507,8 +526,8 @@ class Application:
 
     def perl_snippets(self, snippet):
         """ Return a perl snippet. """
-        # The perl snippets have a different structure and they are not as numerous as openqa snippets. 
-        # Therefore we only have them in a separate routine. 
+        # The perl snippets have a different structure and they are not as numerous as openqa snippets.
+        # Therefore we only have them in a separate routine.
         if snippet == 'if':
             self.put_into_text("if (condition) {\n   # Put some code here;\n}\n")
         elif snippet == 'unless':
@@ -555,7 +574,7 @@ class Application:
         ]
         snippet = '\n'.join(lines)
         self.put_into_text(snippet)
-            
+
     def open_file(self, filename=None):
         """ Opens a file. """
         # First, let's make sure the document is saved, or the user does not want to save it. The dialog sets the $closefile
@@ -609,7 +628,7 @@ class Application:
         # Save it into the file
         with open(self.filetosave, 'w') as outputfile:
             outputfile.write(data)
-        # Get the file name and update the title bar.    
+        # Get the file name and update the title bar.
         base = os.path.basename(self.filetosave)
         self.update_title('save')
 
@@ -630,8 +649,8 @@ class Application:
 
     def text_edited(self, e):
         """ Trigger the status to unsave whenever an keyboard event happens in the test widget. """
-        pass_keys = ['Left', 'Up', 'Right', 'Down', 'Control_L', 'Alt_L', 'ISO_Level3_Shift', 
-                     'Shift_R', 'Shift_L', 'Caps_Lock', 'Insert', 'Home', 'End', 'Next', 
+        pass_keys = ['Left', 'Up', 'Right', 'Down', 'Control_L', 'Alt_L', 'ISO_Level3_Shift',
+                     'Shift_R', 'Shift_L', 'Caps_Lock', 'Insert', 'Home', 'End', 'Next',
                      'Prior', 'Num_Lock', 'Scroll_Lock']
         if e.keysym in pass_keys:
             pass
@@ -712,7 +731,7 @@ class Application:
             self.dtake.grid(row=2, column=0)
         else:
             messagebox.showerror("File not saved", "Save the file before you attempt to create needles.")
-            
+
 
     def create_needle(self):
         needlename = self.dentry.get()
@@ -753,23 +772,23 @@ def show_about(topwindow):
     ttk.Label(about, text=title, font=titlefont).grid(column=0, row=0, sticky='nsew', pady=20, padx=10)
     ttk.Label(about, text=text, wraplength=200).grid(column=0, row=1, sticky='nsew', pady=20, padx=10)
     ttk.Button(about, text="Close", command=about.destroy).grid(column=0,row=2)
-    
+
 def take_screenshot(virtual_machine, hypervisor, tagfilename="screenshot.png"):
     """ Take the screenshot from the running virtual machine. As only .ppm files
     are possible, use imagemagick to convert the shot into a .png file and save
-    it. 
+    it.
     It takes the virtual_machine's name, the hypervisor connection, and the tagfilename
-    as arguments. 
+    as arguments.
     """
 
-    # When no VM has been previously selected, there is no need 
+    # When no VM has been previously selected, there is no need
     # to try and take screenshots.
     # Use the domain name to get the domain object
     domain = hypervisor.lookupByName(virtual_machine)
     # Create a stream to the hypervisor
     stream = hypervisor.newStream()
     # Collect the available image type of the first screen
-    # On a VM usually only one screen is available, 
+    # On a VM usually only one screen is available,
     # so we will take the first one and will not bother
     # about others.
     image_type = domain.screenshot(stream, 0)
@@ -802,7 +821,7 @@ def main():
     # Start the application and open the file, if there is one.
     app = Application(filename=filename)
     app.run()
-        
+
 ################################################################################################
 
 
