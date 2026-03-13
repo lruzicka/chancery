@@ -10,93 +10,90 @@ files.
 Created by Lukáš Růžička (lruzicka@redhat.com)
 
 Red Hat, 2022
+Migrated to GTK4, 2026
 """
 
-import tkinter as tk
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Gdk', '4.0')
+from gi.repository import Gtk, Gdk, GdkPixbuf, Gio
+
 import io
 import os
 import json
 import re
 import sys
 import libvirt
-from tkinter import ttk
-from tkinter import filedialog, messagebox
 from PIL import Image
 
 class Application:
     """ Hold the GUI frames and widgets, as well as the handling in the GUI. """
-    def __init__(self, master=None):
-        self.toplevel = tk.Tk() if master is None else tk.Toplevel(master)
-        self.toplevel.title("Create a needle for the selected tag.")
-        #self.create_menu()
-        # Map keys to the application
-        #self.toplevel.bind("<Control-d>", self.readimages)
-        self.toplevel.bind("<Control-m>", self.modifyArea)
-        #self.toplevel.bind("<Control-g>", self.showArea)
-        #self.toplevel.bind("<Control-n>", self.nextImage)
-        self.toplevel.bind("<Control-a>", self.addAreaToNeedle)
-        self.toplevel.bind("<Control-r>", self.removeAreaFromNeedle)
-        #self.toplevel.bind("<Control-p>", self.prevImage)
-        #self.toplevel.bind("<Control-l>", self.loadNeedle)
-        self.toplevel.bind("<Control-s>", self.createNeedle)
-        #self.toplevel.bind("<Control-o>", self.selectfile)
-        self.toplevel.bind("<Control-q>", self.wrapquit)
-        #self.toplevel.bind("<Control-x>", self.renameFile)
-        #self.toplevel.bind("<Control-v>", self.show_connect_VM)
-        #self.toplevel.bind("<Control-t>", self.takeScreenshot)
-        # Initiate the main frame of the application.
-        self.frame = tk.Frame(self.toplevel)
-        self.frame.grid()
+    def __init__(self, master=None, cli_path=None):
+        self.app = Gtk.Application(application_id='org.chancery.needler')
+        self.app.connect('activate', self.on_activate)
+        self.cli_path = cli_path
+
+        # Initialize data structures
+        self.images = []
+        self.needleCoordinates = [0, 0, 0, 0]
+        self.directory = ""
+        self.rectangle = None
+        self.needle = needleData({"properties":[], "tags":[], "area":[]})
+        self.imageName = None
+        self.handler = None
+        self.imageCount = 0
+        self.rectangles = []
+        self.kvm = None
+        self.virtual_machine = None
+        self.startPoint = [0, 0]
+        self.endPoint = [0, 0]
+        self.pixbuf = None
+        self.surface = None
+        self.window = None
+
+    def on_activate(self, app):
+        """Create the main window when the application is activated."""
+        self.window = Gtk.ApplicationWindow(application=app)
+        self.window.set_title("Create a needle for the selected tag.")
+        self.window.set_default_size(1280, 800)
+
+        # Set up key event controller
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect('key-pressed', self.on_key_pressed)
+        self.window.add_controller(key_controller)
+
         self.buildWidgets()
-        self.images = [] # List of images to be handled.
-        self.needleCoordinates = [0, 0, 0, 0] # Coordinates of the needle area
-        self.directory = "" # Active working directory
-        self.rectangle = None # The red frame around the area
-        self.needle = needleData({"properties":[], "tags":[], "area":[]}) # The Needle object
-        self.imageName = None # The name of the active image
-        self.handler = None # The file reader and writer object
-        self.imageCount = 0 # Counter for
-        self.rectangles = [] # Holder for rectangles
-        self.kvm = None # Connection to KVM hypervisor
-        self.virtual_machine = None # Holds the name of the connected virtual machine
+        self.window.present()
 
-   # def create_menu(self):
-   #     self.menu = tk.Menu(self.toplevel)
-   #     # Define the File submenu
-   #     self.menu_file = tk.Menu(self.menu)
-   #     self.menu.add_cascade(menu=self.menu_file, label='File')
-   #     self.menu_file.add_command(label='Open file', accelerator='Ctrl-O', command=self.selectfile)
-   #     self.menu_file.add_command(label='Open directory', accelerator='Ctrl-D', command=self.readimages)
-   #     self.menu_file.add_separator()
-   #     self.menu_file.add_command(label='Load next', accelerator='Ctrl-N', command=self.nextImage)
-   #     self.menu_file.add_command(label='Load previous', accelerator='Ctrl-P', command=self.prevImage)
-   #     self.menu_file.add_command(label='Set name from tag', accelerator='Ctrl-X', command=self.renameFile)
-   #     self.menu_file.add_separator()
-   #     self.menu_file.add_command(label='Quit', accelerator='Ctrl-Q', command=self.wrapquit)
-   #     # Define the Needle submenu
-   #     self.menu_needle = tk.Menu(self.menu)
-   #     self.menu.add_cascade(menu=self.menu_needle, label='Needle')
-   #     self.menu_needle.add_command(label='Load', accelerator='Ctrl-L', command=self.loadNeedle)
-   #     self.menu_needle.add_command(label='Save', accelerator='Ctrl-S', command=self.createNeedle)
-
-   #     # Define the Area submenu
-   #     self.menu_area = tk.Menu(self.menu)
-   #     self.menu.add_cascade(menu=self.menu_area, label='Area')
-   #     self.menu_area.add_command(label='Add area', accelerator='Ctrl-A', command=self.addAreaToNeedle)
-   #     self.menu_area.add_command(label='Remove area', accelerator='Ctrl-R', command=self.removeAreaFromNeedle)
-   #     self.menu_area.add_command(label='Go to next area', accelerator='Ctrl-G', command=self.showArea)
-   #     self.menu_area.add_command(label='Modify area', accelerator='Ctrl-M', command=self.modifyArea)
-   #     # Define the VM submenu
-   #     self.menu_vm = tk.Menu(self.menu)
-   #     self.menu.add_cascade(menu=self.menu_vm, label='vMachine')
-   #     self.menu_vm.add_command(label='Connect VM', accelerator='Ctrl-V', command=self.show_connect_VM)
-   #     self.menu_vm.add_command(label='Take screenshot', accelerator='Ctrl-T', command=self.takeScreenshot)
-   #     # Register the menu in the top level widget.
-   #     self.toplevel['menu'] = self.menu
+        # Load CLI path if provided
+        if self.cli_path:
+            self.acceptCliChoice(self.cli_path)
 
     def run(self):
         """ Starts the mainloop of the application. """
-        self.toplevel.mainloop()
+        self.app.run(None)
+
+    def on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard shortcuts."""
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+
+        if ctrl:
+            if keyval == Gdk.KEY_m:
+                self.modifyArea()
+                return True
+            elif keyval == Gdk.KEY_a:
+                self.addAreaToNeedle()
+                return True
+            elif keyval == Gdk.KEY_r:
+                self.removeAreaFromNeedle()
+                return True
+            elif keyval == Gdk.KEY_s:
+                self.createNeedle()
+                return True
+            elif keyval == Gdk.KEY_q:
+                self.window.close()
+                return True
+        return False
 
     def acceptCliChoice(self, path):
         """Opens an image for editing when passed as a CLI argument upon starting the editor."""
@@ -105,189 +102,366 @@ class Application:
         if '.json' in image:
             prefix = image.split('.')[0]
             image = prefix + '.png'
-        self.imageName = image    
+        self.imageName = image
         self.imageCount = 0
         path = os.path.join(self.directory, self.imageName)
         self.displayImage(path)
-        
+
     def buildWidgets(self):
         """Construct GUI"""
-        
-        self.picFrame = tk.Frame(self.frame)
-        self.picFrame.grid(row=0, column=0)
-                
-        self.xscroll = tk.Scrollbar(self.picFrame, orient='horizontal')
-        self.xscroll.grid(row=1, column=0, sticky="we")
-        
-        self.yscroll = tk.Scrollbar(self.picFrame, orient='vertical')
-        self.yscroll.grid(row=0, column=1, columnspan=2, sticky="ns")
+        # Main horizontal box
+        main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.window.set_child(main_box)
 
-        self.pictureField = tk.Canvas(self.picFrame, height=769, width=1025, xscrollcommand=self.xscroll.set, yscrollcommand=self.yscroll.set)
-        self.pictureField.grid(row=0, column=0)
-        self.pictureField.config(scrollregion=self.pictureField.bbox('ALL'))
-        # Bind picture specific keys
-        self.pictureField.bind("<Button 1>", self.startArea)
-        self.pictureField.bind("<B1-Motion>", self.redrawArea)
-        self.pictureField.bind("<ButtonRelease-1>", self.endArea)
-        self.pictureField.bind("<Up>", self.resizeArea)
-        self.pictureField.bind("<Down>", self.resizeArea)
-        self.pictureField.bind("<Left>", self.resizeArea)
-        self.pictureField.bind("<Right>", self.resizeArea)
-        
-        self.xscroll.config(command=self.pictureField.xview)
-        self.yscroll.config(command=self.pictureField.yview)
-        
-        self.jsonFrame = tk.Frame(self.frame, padx=10)
-        self.jsonFrame.grid(row=0, column=2, sticky="news")
+        # Left side: Picture frame with scrolled window
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+        scrolled.set_min_content_width(1025)
+        scrolled.set_min_content_height(769)
 
-        self.nameLabel = tk.Label(self.jsonFrame, text="Filename:")
-        self.nameLabel.grid(row=0, column=0, sticky="w")
-        
-        self.nameEntry = tk.Entry(self.jsonFrame)
-        self.nameEntry.grid(row=1, column=0, sticky="ew")
-        
-        self.propLabel = tk.Label(self.jsonFrame, text="Properties:")
-        self.propLabel.grid(row=2, column=0, sticky="w")
-        
-        self.propText = tk.Text(self.jsonFrame, width=30, height=4)
-        self.propText.grid(row=3, column=0, sticky="ew")
+        # Drawing area for the picture
+        self.pictureField = Gtk.DrawingArea()
+        self.pictureField.set_size_request(1025, 769)
+        self.pictureField.set_draw_func(self.on_draw)
 
-        self.needleUL = tk.Label(self.jsonFrame, text="Area Coordinates:")
-        self.needleUL.grid(row=4, column=0, sticky="w")
+        # Add gesture controllers for mouse interaction
+        drag_controller = Gtk.GestureDrag()
+        drag_controller.connect('drag-begin', self.on_drag_begin)
+        drag_controller.connect('drag-update', self.on_drag_update)
+        drag_controller.connect('drag-end', self.on_drag_end)
+        self.pictureField.add_controller(drag_controller)
 
-        self.coordFrame = tk.Frame(self.jsonFrame)
-        self.coordFrame.grid(row=5, column=0, sticky="ew")
+        # Key controller for arrow keys
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect('key-pressed', self.on_picture_key_pressed)
+        self.pictureField.add_controller(key_controller)
 
-        self.axLable = tk.Label(self.coordFrame, text="X1:")
-        self.axLable.grid(row=0, column=0, sticky="w")
-        
-        self.axEntry = tk.Entry(self.coordFrame, width=5)
-        self.axEntry.grid(row=0, column=1, sticky="w")
+        # Make drawing area focusable
+        self.pictureField.set_focusable(True)
 
-        self.ayLable = tk.Label(self.coordFrame, text="Y1:")
-        self.ayLable.grid(row=0, column=2, sticky="w")
+        scrolled.set_child(self.pictureField)
+        main_box.append(scrolled)
 
-        self.ayEntry = tk.Entry(self.coordFrame, width=5)
-        self.ayEntry.grid(row=0, column=3, sticky="w")
+        # Right side: JSON data frame
+        right_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        right_box.set_margin_start(10)
+        right_box.set_margin_end(10)
+        right_box.set_margin_top(10)
+        right_box.set_margin_bottom(10)
+        main_box.append(right_box)
 
-        self.widthLabel = tk.Label(self.coordFrame, text="Area width:")
-        self.widthLabel.grid(row=0, column=4, sticky="w")
+        # Filename
+        name_label = Gtk.Label(label="Filename:")
+        name_label.set_halign(Gtk.Align.START)
+        right_box.append(name_label)
 
-        self.widthEntry = tk.Entry(self.coordFrame, width=5)
-        self.widthEntry.grid(row=0, column=5, sticky="w")
+        self.nameEntry = Gtk.Entry()
+        self.nameEntry.set_editable(False)
+        right_box.append(self.nameEntry)
 
-        self.heigthLabel = tk.Label(self.coordFrame, text="Area heigth:")
-        self.heigthLabel.grid(row=1, column=4, sticky="w")
+        # Properties
+        prop_label = Gtk.Label(label="Properties:")
+        prop_label.set_halign(Gtk.Align.START)
+        right_box.append(prop_label)
 
-        self.heigthEntry = tk.Entry(self.coordFrame, width=5)
-        self.heigthEntry.grid(row=1, column=5, sticky="w")
+        prop_scroll = Gtk.ScrolledWindow()
+        prop_scroll.set_min_content_height(80)
+        self.propText = Gtk.TextView()
+        self.propText.set_wrap_mode(Gtk.WrapMode.WORD)
+        prop_scroll.set_child(self.propText)
+        right_box.append(prop_scroll)
 
-        self.bxLable = tk.Label(self.coordFrame, text="X2:")
-        self.bxLable.grid(row=1, column=0, sticky="w")
+        # Area Coordinates
+        coord_label = Gtk.Label(label="Area Coordinates:")
+        coord_label.set_halign(Gtk.Align.START)
+        right_box.append(coord_label)
 
-        self.bxEntry = tk.Entry(self.coordFrame, width=5)
-        self.bxEntry.grid(row=1, column=1, sticky="w")
+        # Coordinate grid
+        coord_grid = Gtk.Grid()
+        coord_grid.set_column_spacing(5)
+        coord_grid.set_row_spacing(5)
+        right_box.append(coord_grid)
 
-        self.byLable = tk.Label(self.coordFrame, text="Y2:")
-        self.byLable.grid(row=1, column=2, sticky="w")
+        # X1, Y1
+        coord_grid.attach(Gtk.Label(label="X1:"), 0, 0, 1, 1)
+        self.axEntry = Gtk.Entry()
+        self.axEntry.set_width_chars(5)
+        coord_grid.attach(self.axEntry, 1, 0, 1, 1)
 
-        self.byEntry = tk.Entry(self.coordFrame, width=5)
-        self.byEntry.grid(row=1, column=3, sticky="w")
+        coord_grid.attach(Gtk.Label(label="Y1:"), 2, 0, 1, 1)
+        self.ayEntry = Gtk.Entry()
+        self.ayEntry.set_width_chars(5)
+        coord_grid.attach(self.ayEntry, 3, 0, 1, 1)
 
-        self.listLabel = tk.Label(self.jsonFrame, text="Area type:")
-        self.listLabel.grid(row=6, column=0, sticky="w")
-        
-        self.typeList = tk.Spinbox(self.jsonFrame, values=["match","ocr","exclude"])
-        self.typeList.grid(row=7, column=0, sticky="ew")
-        
-        self.textLabel = tk.Label(self.jsonFrame, text="Tags:")
-        self.textLabel.grid(row=8, column=0, sticky="w")
-        
-        self.textField = tk.Text(self.jsonFrame, width=30, height=5)
-        self.textField.grid(row=9, column=0, sticky="ew")
-        
-        self.jsonLabel = tk.Label(self.jsonFrame, text="Json Data:")
-        self.jsonLabel.grid(row=10, column=0, sticky="w")
-        
-        self.textJson = tk.Text(self.jsonFrame, width=30, height=10)
-        self.textJson.grid(row=11, column=0, sticky="ew")
+        coord_grid.attach(Gtk.Label(label="Width:"), 4, 0, 1, 1)
+        self.widthEntry = Gtk.Entry()
+        self.widthEntry.set_width_chars(5)
+        coord_grid.attach(self.widthEntry, 5, 0, 1, 1)
 
-        self.needleLabel = tk.Label(self.jsonFrame, text="Areas in needle: ")
-        self.needleLabel.grid(row=12, column=0, sticky="w")
+        # X2, Y2
+        coord_grid.attach(Gtk.Label(label="X2:"), 0, 1, 1, 1)
+        self.bxEntry = Gtk.Entry()
+        self.bxEntry.set_width_chars(5)
+        coord_grid.attach(self.bxEntry, 1, 1, 1, 1)
 
-        self.needleEntry = tk.Entry(self.jsonFrame, width=30)
-        self.needleEntry.grid(row=13, column=0, sticky="w")
+        coord_grid.attach(Gtk.Label(label="Y2:"), 2, 1, 1, 1)
+        self.byEntry = Gtk.Entry()
+        self.byEntry.set_width_chars(5)
+        coord_grid.attach(self.byEntry, 3, 1, 1, 1)
 
-        self.vmLabel = tk.Label(self.jsonFrame, text="VM connection:")
-        self.vmLabel.grid(row=14, column=0, sticky="w")
-        
-        self.vmEntry = tk.Entry(self.jsonFrame, width=30)
-        self.vmEntry.grid(row=15, column=0, sticky="w")
-        self.vmEntry.insert("end","Not connected")
+        coord_grid.attach(Gtk.Label(label="Height:"), 4, 1, 1, 1)
+        self.heigthEntry = Gtk.Entry()
+        self.heigthEntry.set_width_chars(5)
+        coord_grid.attach(self.heigthEntry, 5, 1, 1, 1)
 
+        # Area type
+        type_label = Gtk.Label(label="Area type:")
+        type_label.set_halign(Gtk.Align.START)
+        right_box.append(type_label)
 
-    def wrapopen(self): # These functions serve as wrappers for key bindings that were not able to invoke 
-        self.selectfile()
+        self.typeList = Gtk.DropDown.new_from_strings(["match", "ocr", "exclude"])
+        self.typeList.set_selected(0)
+        right_box.append(self.typeList)
+
+        # Tags
+        tags_label = Gtk.Label(label="Tags:")
+        tags_label.set_halign(Gtk.Align.START)
+        right_box.append(tags_label)
+
+        tags_scroll = Gtk.ScrolledWindow()
+        tags_scroll.set_min_content_height(100)
+        self.textField = Gtk.TextView()
+        self.textField.set_wrap_mode(Gtk.WrapMode.WORD)
+        tags_scroll.set_child(self.textField)
+        right_box.append(tags_scroll)
+
+        # JSON Data
+        json_label = Gtk.Label(label="Json Data:")
+        json_label.set_halign(Gtk.Align.START)
+        right_box.append(json_label)
+
+        json_scroll = Gtk.ScrolledWindow()
+        json_scroll.set_min_content_height(150)
+        json_scroll.set_vexpand(True)
+        self.textJson = Gtk.TextView()
+        self.textJson.set_wrap_mode(Gtk.WrapMode.WORD)
+        json_scroll.set_child(self.textJson)
+        right_box.append(json_scroll)
+
+        # Areas in needle
+        needle_label = Gtk.Label(label="Areas in needle:")
+        needle_label.set_halign(Gtk.Align.START)
+        right_box.append(needle_label)
+
+        self.needleEntry = Gtk.Entry()
+        self.needleEntry.set_editable(False)
+        right_box.append(self.needleEntry)
+
+        # VM connection
+        vm_label = Gtk.Label(label="VM connection:")
+        vm_label.set_halign(Gtk.Align.START)
+        right_box.append(vm_label)
+
+        self.vmEntry = Gtk.Entry()
+        self.vmEntry.set_editable(False)
+        self.vmEntry.set_text("Not connected")
+        right_box.append(self.vmEntry)
+
+    def on_draw(self, area, cr, width, height):
+        """Draw the image and rectangle on the canvas."""
+        # Draw the image if available
+        if self.pixbuf:
+            Gdk.cairo_set_source_pixbuf(cr, self.pixbuf, 0, 0)
+            cr.paint()
+
+        # Draw rectangles
+        if self.rectangles:
+            cr.set_source_rgb(1, 0, 0)  # Red color
+            cr.set_line_width(2)
+            for rect in self.rectangles:
+                if rect and len(rect) == 4:
+                    x1, y1, x2, y2 = rect
+                    cr.rectangle(x1, y1, x2 - x1, y2 - y1)
+                    cr.stroke()
+
+        # Draw current rectangle
+        if self.rectangle and len(self.rectangle) == 4:
+            cr.set_source_rgb(1, 0, 0)  # Red color
+            cr.set_line_width(2)
+            x1, y1, x2, y2 = self.rectangle
+            cr.rectangle(x1, y1, x2 - x1, y2 - y1)
+            cr.stroke()
+
+    def on_drag_begin(self, gesture, x, y):
+        """Start drawing the rectangle."""
+        self.startPoint = [int(x), int(y)]
+        if self.rectangle is None:
+            self.rectangle = [int(x), int(y), int(x), int(y)]
+        self.pictureField.grab_focus()
+
+    def on_drag_update(self, gesture, offset_x, offset_y):
+        """Update the rectangle as the mouse is dragged."""
+        start_x, start_y = gesture.get_start_point()
+        end_x = start_x + offset_x
+        end_y = start_y + offset_y
+
+        self.endPoint = [int(end_x), int(end_y)]
+        self.needleCoordinates = self.startPoint + self.endPoint
+        self.rectangle = self.needleCoordinates.copy()
+
+        self.pictureField.queue_draw()
+
+    def on_drag_end(self, gesture, offset_x, offset_y):
+        """Finalize the rectangle and normalize coordinates."""
+        start_x, start_y = gesture.get_start_point()
+        end_x = start_x + offset_x
+        end_y = start_y + offset_y
+
+        xpos = int(start_x)
+        ypos = int(start_y)
+        apos = int(end_x)
+        bpos = int(end_y)
+
+        # Normalize coordinates
+        coordinates = [0, 0, 1, 1]
+        if xpos <= apos and ypos <= bpos:
+            coordinates = [xpos, ypos, apos, bpos]
+        elif xpos >= apos and ypos >= bpos:
+            coordinates = [apos, bpos, xpos, ypos]
+        elif xpos <= apos and ypos >= bpos:
+            coordinates = [xpos, bpos, apos, ypos]
+        elif xpos >= apos and ypos <= bpos:
+            coordinates = [apos, ypos, xpos, bpos]
+
+        self.displayCoordinates(coordinates)
+        self.needleCoordinates = coordinates
+        self.rectangle = coordinates.copy()
+
+    def on_picture_key_pressed(self, controller, keyval, keycode, state):
+        """Handle arrow keys for resizing the area."""
+        self.getCoordinates()
+
+        shift = state & Gdk.ModifierType.SHIFT_MASK
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+        alt = state & Gdk.ModifierType.ALT_MASK
+
+        # Determine step size and which coordinates to modify
+        if ctrl and shift and alt:
+            step = 25
+            x, y = 0, 1
+        elif ctrl and shift:
+            step = 5
+            x, y = 0, 1
+        elif ctrl:
+            step = 1
+            x, y = 0, 1
+        elif alt:
+            step = 25
+            x, y = 2, 3
+        elif shift:
+            step = 5
+            x, y = 2, 3
+        else:
+            step = 1
+            x, y = 2, 3
+
+        # Modify coordinates based on arrow key
+        if keyval == Gdk.KEY_Left:
+            self.needleCoordinates[x] -= step
+        elif keyval == Gdk.KEY_Right:
+            self.needleCoordinates[x] += step
+        elif keyval == Gdk.KEY_Up:
+            self.needleCoordinates[y] -= step
+        elif keyval == Gdk.KEY_Down:
+            self.needleCoordinates[y] += step
+        else:
+            return False
+
+        self.displayCoordinates(self.needleCoordinates)
+        self.rectangle = self.needleCoordinates.copy()
+        self.pictureField.queue_draw()
+        return True
 
     def wrapquit(self, event=None):
-        self.frame.quit()
+        self.window.close()
 
     def returnPath(self, image):
         """Create a full path from working directory and image name."""
         return os.path.join(self.directory, image)
-    
+
     def readimages(self, event=None):
         """Read png images from the given directory and create a list of their names."""
         self.images = []
-        self.directory = filedialog.askdirectory()
-        if self.directory:
-            for file in os.listdir(self.directory):
-                if file.endswith(".png"):
-                    self.images.append(file)
-        else:
-            pass
-        if len(self.images) == 1:
-            messagebox.showinfo("Found images", "Found 1 image in the selected directory.")
-        else:
-            messagebox.showinfo("Found images", "Found {} images in the selected directory.".format(len(self.images)))
-        self.imageCount = 0
+
+        dialog = Gtk.FileDialog()
+        dialog.select_folder(None, None, self.on_folder_selected)
+
+    def on_folder_selected(self, dialog, result):
+        """Callback when a folder is selected."""
         try:
-            self.imageName = self.images[0]
-            self.displayImage(self.returnPath(self.imageName))
-        except IndexError:
+            folder = dialog.select_folder_finish(result)
+            if folder:
+                self.directory = folder.get_path()
+                for file in os.listdir(self.directory):
+                    if file.endswith(".png"):
+                        self.images.append(file)
+
+                if len(self.images) == 1:
+                    self.show_info_dialog("Found images", "Found 1 image in the selected directory.")
+                else:
+                    self.show_info_dialog("Found images", f"Found {len(self.images)} images in the selected directory.")
+
+                self.imageCount = 0
+                try:
+                    self.imageName = self.images[0]
+                    self.displayImage(self.returnPath(self.imageName))
+                except IndexError:
+                    pass
+        except Exception as e:
             pass
 
     def selectfile(self, event=None):
         """Reads in an image file and shows it for editing."""
-        noimage = False
+        dialog = Gtk.FileDialog()
+        dialog.open(None, None, self.on_file_selected)
+
+    def on_file_selected(self, dialog, result):
+        """Callback when a file is selected."""
         try:
-            path = filedialog.askopenfile().name
-        except AttributeError:
-            noimage = True
-        if noimage == False:
-            self.directory = os.path.split(path)[0]
-            image = os.path.split(path)[1]
-            if 'json' in image:
-                prefix = image.split('.')[0]
-                image = prefix + '.png'
-            self.imageName = image
-            self.imageCount = 0
-            path = os.path.join(self.directory, image)
-            self.displayImage(path)
+            file = dialog.open_finish(result)
+            if file:
+                path = file.get_path()
+                self.directory = os.path.dirname(path)
+                image = os.path.basename(path)
+                if 'json' in image:
+                    prefix = image.split('.')[0]
+                    image = prefix + '.png'
+                self.imageName = image
+                self.imageCount = 0
+                path = os.path.join(self.directory, image)
+                self.displayImage(path)
+        except Exception as e:
+            pass
 
     def displayImage(self, path):
         """Display image on the canvas."""
-        self.picture = Image.open(path)
-        print("SELF_IMAGE",self.image)
-        self.picsize = (self.picture.width,self.picture.height)
-        self.image = tk.PhotoImage(file=path)
-        self.background = self.pictureField.create_image((1, 1), image=self.image, anchor='nw')
-        self.nameEntry.config(state="normal")
-        self.nameEntry.delete(0, "end")
-        self.nameEntry.insert("end", self.imageName)
-        self.nameEntry.config(state="readonly")
-        self.pictureField.focus_set()
-               
+        try:
+            self.picture = Image.open(path)
+            self.picsize = (self.picture.width, self.picture.height)
+
+            # Load pixbuf
+            self.pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+
+            # Update drawing area size
+            self.pictureField.set_size_request(self.pixbuf.get_width(), self.pixbuf.get_height())
+
+            self.nameEntry.set_text(self.imageName)
+            self.pictureField.queue_draw()
+            self.pictureField.grab_focus()
+        except Exception as e:
+            self.show_error_dialog("Error", f"Failed to load image: {str(e)}")
+
     def nextImage(self, event=None):
         """Display next image on the list."""
         self.imageCount += 1
@@ -300,10 +474,10 @@ class Application:
                 self.imageCount = 0
                 noimage = False
             else:
-                messagebox.showerror("Error", "No images are loaded. Select an image first.")
+                self.show_error_dialog("Error", "No images are loaded. Select an image first.")
                 noimage = True
-        if noimage == False:
-            self.pictureField.delete(self.rectangle)
+
+        if not noimage:
             self.rectangle = None
             self.displayImage(self.returnPath(self.imageName))
 
@@ -319,26 +493,24 @@ class Application:
                 self.imageCount = len(self.images)
                 noimage = False
             else:
-                messagebox.showerror("Error", "No images are loaded. Select an image first.")
+                self.show_error_dialog("Error", "No images are loaded. Select an image first.")
                 noimage = True
-        if noimage == False:
-            self.pictureField.delete(self.rectangle)
+
+        if not noimage:
             self.rectangle = None
             self.displayImage(self.returnPath(self.imageName))
-        else:
-            pass
-        
+
     def getCoordinates(self):
         """Read coordinates from the coordinate windows."""
         xpos = None
         apos = None
         try:
-            xpos = int(self.axEntry.get())
-            ypos = int(self.ayEntry.get())
-            apos = int(self.bxEntry.get())
-            bpos = int(self.byEntry.get())
+            xpos = int(self.axEntry.get_text())
+            ypos = int(self.ayEntry.get_text())
+            apos = int(self.bxEntry.get_text())
+            bpos = int(self.byEntry.get_text())
         except ValueError:
-            messagebox.showerror("Error", "Cannot operate without images.")
+            self.show_error_dialog("Error", "Cannot operate without valid coordinates.")
 
         if not xpos and not apos:
             self.needleCoordinates = [0, 0, 100, 200]
@@ -350,40 +522,41 @@ class Application:
         width = int(coordinates[2]) - int(coordinates[0])
         heigth = int(coordinates[3]) - int(coordinates[1])
         return [width, heigth]
-            
+
     def showArea(self, event=None):
         """Load area and draw a rectangle around it."""
-        #self.getCoordinates()
         self.area = self.needle.provideNextArea()
         try:
             self.needleCoordinates = [self.area[0], self.area[1], self.area[2], self.area[3]]
             typ = self.area[4]
-            self.rectangle = self.pictureField.create_rectangle(self.needleCoordinates, outline="red", width=2)
+            self.rectangle = self.needleCoordinates.copy()
             self.rectangles.append(self.rectangle)
             self.displayCoordinates(self.needleCoordinates)
-            self.typeList.delete(0, "end")
-            self.typeList.insert("end", typ)
-        except TypeError:
-            for r in self.rectangles:
-                self.pictureField.delete(r)
 
+            # Set the combo box
+            if typ == "match":
+                self.typeList.set_selected(0)
+            elif typ == "ocr":
+                self.typeList.set_selected(1)
+            elif typ == "exclude":
+                self.typeList.set_selected(2)
+
+            self.pictureField.queue_draw()
+        except (TypeError, AttributeError):
+            self.rectangles = []
+            self.pictureField.queue_draw()
 
     def displayCoordinates(self, coordinates):
-        """Disply coordinates in the GUI"""
-        self.axEntry.delete(0, "end")
-        self.axEntry.insert("end", coordinates[0])
-        self.ayEntry.delete(0, "end")
-        self.ayEntry.insert("end", coordinates[1])
-        self.bxEntry.delete(0, "end")
-        self.bxEntry.insert("end", coordinates[2])
-        self.byEntry.delete(0, "end")
-        self.byEntry.insert("end", coordinates[3])
+        """Display coordinates in the GUI"""
+        self.axEntry.set_text(str(coordinates[0]))
+        self.ayEntry.set_text(str(coordinates[1]))
+        self.bxEntry.set_text(str(coordinates[2]))
+        self.byEntry.set_text(str(coordinates[3]))
+
         size = self.calculateSize(coordinates)
-        self.widthEntry.delete(0, "end")
-        self.widthEntry.insert("end", size[0])
-        self.heigthEntry.delete(0, "end")
-        self.heigthEntry.insert("end", size[1])
-        
+        self.widthEntry.set_text(str(size[0]))
+        self.heigthEntry.set_text(str(size[1]))
+
     def modifyArea(self, event=None):
         """Update the information for the active needle area, including properties, tags, etc."""
         self.getCoordinates()
@@ -391,32 +564,45 @@ class Application:
         ypos = self.needleCoordinates[1]
         apos = self.needleCoordinates[2]
         bpos = self.needleCoordinates[3]
-        typ = self.typeList.get()
-        props = self.propText.get("1.0", "end-1c")
+        # Get selected type from DropDown
+        selected_index = self.typeList.get_selected()
+        type_options = ["match", "ocr", "exclude"]
+        typ = type_options[selected_index]
+
+        # Get properties
+        prop_buffer = self.propText.get_buffer()
+        props = prop_buffer.get_text(prop_buffer.get_start_iter(), prop_buffer.get_end_iter(), False)
         if "\n" in props:
             props = props.split("\n")
         if props == "":
             props = []
-        tags = self.textField.get("1.0", "end-1c")
+
+        # Get tags
+        tags_buffer = self.textField.get_buffer()
+        tags = tags_buffer.get_text(tags_buffer.get_start_iter(), tags_buffer.get_end_iter(), False)
         if "\n" in tags:
             tags = tags.split("\n")
         if tags == "":
             tags = []
+
         coordinates = [xpos, ypos, apos, bpos, typ]
         self.needle.update(coordinates, tags, props)
-        self.textJson.delete("1.0", "end")
-        json = self.needle.provideJson()
-        self.textJson.insert("end", json)
-        self.pictureField.coords(self.rectangle, self.needleCoordinates)
-        
+
+        # Update JSON display
+        json_buffer = self.textJson.get_buffer()
+        json_buffer.set_text("")
+        json_text = self.needle.provideJson()
+        json_buffer.set_text(json.dumps(json_text, indent=2))
+
+        self.rectangle = self.needleCoordinates.copy()
+        self.pictureField.queue_draw()
+
     def addAreaToNeedle(self, event=None):
         """Add new area to needle. The needle can have more areas."""
         self.needle.addArea()
         self.modifyArea(None)
         areas = self.needle.provideAreaCount()
-        self.needleEntry.delete(0, "end")
-        self.needleEntry.insert("end", areas)
-
+        self.needleEntry.set_text(str(areas))
 
     def removeAreaFromNeedle(self, event=None):
         """Remove the active area from the needle (deletes it)."""
@@ -424,147 +610,69 @@ class Application:
         areas = self.needle.provideAreaCount()
         coordinates = [0, 0, 0, 0]
         self.displayCoordinates(coordinates)
-        self.needleEntry.delete(0, "end")
-        self.needleEntry.insert("end", areas)
-        json = self.needle.provideJson()
-        self.textJson.delete("1.0", "end")
-        self.textJson.insert("end", json)
-        self.pictureField.delete(self.rectangle)
+        self.needleEntry.set_text(str(areas))
+
+        json_buffer = self.textJson.get_buffer()
+        json_text = self.needle.provideJson()
+        json_buffer.set_text(json.dumps(json_text, indent=2))
+
+        self.rectangle = None
+        self.pictureField.queue_draw()
         self.showArea(None)
-        
-    def startArea(self, event):
-        """Get coordinates on mouse click and start drawing the rectangle from this point."""
-        xpos = event.x
-        ypos = event.y
-        self.startPoint = [xpos, ypos]
-        if self.rectangle == None:
-            self.rectangle = self.pictureField.create_rectangle(self.needleCoordinates, outline="red", width=2)
-            
-    def redrawArea(self, event):
-        """Upon mouse drag update the size of the rectangle as the mouse is moving."""
-        apos = event.x
-        bpos = event.y
-        self.endPoint = [apos, bpos]
-        self.needleCoordinates = self.startPoint + self.endPoint
-        self.pictureField.coords(self.rectangle, self.needleCoordinates)
-        
-    def endArea(self, event):
-        """Stop drawing the rectangle and record the coordinates to match the final size."""
-        coordinates = [0, 0, 1, 1]
-        xpos = self.needleCoordinates[0]
-        ypos = self.needleCoordinates[1]
-        apos = self.needleCoordinates[2]
-        bpos = self.needleCoordinates[3]
-        self.pictureField.focus_set()
-        
-        if xpos <= apos and ypos <= bpos:
-            coordinates[0] = xpos
-            coordinates[1] = ypos
-            coordinates[2] = apos
-            coordinates[3] = bpos
-        elif xpos >= apos and ypos >= bpos:
-            coordinates[0] = apos
-            coordinates[1] = bpos
-            coordinates[2] = xpos
-            coordinates[3] = ypos
-        elif xpos <= apos and ypos >= bpos:
-            coordinates[0] = xpos
-            coordinates[1] = bpos
-            coordinates[2] = apos
-            coordinates[3] = ypos
-        elif xpos >= apos and ypos <= bpos:
-            coordinates[0] = apos
-            coordinates[1] = ypos
-            coordinates[2] = xpos
-            coordinates[3] = bpos
-        self.displayCoordinates(coordinates)
 
-    def resizeArea(self, event):
-        self.getCoordinates()
-
-        if event.state == 17:
-            x = 0
-            y = 1
-            step = 1
-        elif event.state == 21:
-            x = 0
-            y = 1
-            step = 5
-        elif event.state == 25:
-            x = 0
-            y = 1
-            step = 25
-        elif event.state == 24:
-            x = 2
-            y = 3
-            step = 25
-        elif event.state == 20:
-            x = 2
-            y = 3
-            step = 5
-        else:
-            x = 2
-            y = 3
-            step = 1
-        
-        if event.keycode == 113:
-            self.needleCoordinates[x] = self.needleCoordinates[x] - step
-        elif event.keycode == 114:
-            self.needleCoordinates[x] = self.needleCoordinates[x] + step
-        elif event.keycode == 111:
-            self.needleCoordinates[y] = self.needleCoordinates[y] - step
-        elif event.keycode == 116:
-            self.needleCoordinates[y] = self.needleCoordinates[y] + step
-        
-        self.displayCoordinates(self.needleCoordinates)
-        self.pictureField.coords(self.rectangle, self.needleCoordinates)
-        
-
-        
     def loadNeedle(self, event=None):
         """Load the existing needle information from the file and display them in the window."""
-        if self.imageName != None:
+        if self.imageName is not None:
             jsonfile = self.returnPath(self.imageName).replace(".png", ".json")
             self.handler = fileHandler(jsonfile)
             self.handler.readFile()
             jsondata = self.handler.provideData()
 
             self.needle = needleData(jsondata)
+
+            # Update properties
             properties = self.needle.provideProperties()
-            self.propText.delete("1.0", "end")
-            self.propText.insert("end", properties)
+            prop_buffer = self.propText.get_buffer()
+            prop_buffer.set_text(properties)
+
+            # Update tags
             tags = self.needle.provideTags()
-            self.textField.delete("1.0", "end")
-            self.textField.insert("end", tags)
-            json = self.needle.provideJson()
-            self.textJson.delete("1.0", "end")
-            self.textJson.insert("end", json)
+            tags_buffer = self.textField.get_buffer()
+            tags_buffer.set_text(tags)
+
+            # Update JSON
+            json_text = self.needle.provideJson()
+            json_buffer = self.textJson.get_buffer()
+            json_buffer.set_text(json.dumps(json_text, indent=2))
+
+            # Update areas count
             areas = self.needle.provideAreaCount()
-            self.needleEntry.delete(0, "end")
-            self.needleEntry.insert(0, areas)
-            if self.rectangle != None:
-                self.pictureField.delete(self.rectangle)
-                self.rectangle = None
+            self.needleEntry.set_text(str(areas))
+
+            self.rectangle = None
             self.showArea(None)
         else:
-            messagebox.showerror("Error", "No images are loaded. Select image directory first.")
+            self.show_error_dialog("Error", "No images are loaded. Select image directory first.")
 
     def createNeedle(self, event=None):
         """Write out the json file for the actual image to store the needle permanently."""
         jsondata = self.needle.provideJson()
-        filename = self.nameEntry.get().replace(".png", ".json")
+        filename = self.nameEntry.get_text().replace(".png", ".json")
         path = self.returnPath(filename)
-        if self.handler == None:
+        if self.handler is None:
             self.handler = fileHandler(path)
         self.handler.acceptData(jsondata)
         self.handler.writeFile(path)
-        self.pictureField.delete(self.rectangle)
         self.rectangle = None
+        self.pictureField.queue_draw()
 
     def renameFile(self, event=None):
         """ Rename the needle PNG file with the top placed tag. """
-        tags = self.textField.get("1.0", "end-1c").split("\n")
+        tags_buffer = self.textField.get_buffer()
+        tags_text = tags_buffer.get_text(tags_buffer.get_start_iter(), tags_buffer.get_end_iter(), False)
+        tags = tags_text.split("\n")
         future_name = tags[0]
+
         if future_name and self.imageName:
             future_name = f"{future_name}.png"
             current = self.returnPath(self.imageName)
@@ -572,95 +680,115 @@ class Application:
             try:
                 os.rename(current, new)
                 self.imageName = future_name
-                self.nameEntry.config(state="normal")
-                self.nameEntry.delete(0, "end")
-                self.nameEntry.insert("end", future_name)
-                self.nameEntry.config(state="readonly")
-                messagebox.showinfo("Success", "The PNG file has been renamed.")
+                self.nameEntry.set_text(future_name)
+                self.show_info_dialog("Success", "The PNG file has been renamed.")
             except Exception as e:
-                messagebox.showerror("Error", str(e))
+                self.show_error_dialog("Error", str(e))
         elif not future_name:
-            messagebox.showerror("Error", "No tags available to rename the file. Leaving it unchanged.")
+            self.show_error_dialog("Error", "No tags available to rename the file. Leaving it unchanged.")
         elif not self.imageName:
-            messagebox.showerror("Error", "No image loaded. Load an image first!")
+            self.show_error_dialog("Error", "No image loaded. Load an image first!")
 
     def show_connect_VM(self, event=None):
         """ Show a dialogue to connect to a VM """
-        # Create the basic GUI for the dialogue
-        self.connect_dialogue = tk.Toplevel(self.toplevel)
-        self.connect_dialogue.title('Connect to a VM')
-        self.cd_layout = tk.Frame(self.connect_dialogue)
-        self.cd_layout.grid()
-        self.cd_label = tk.Label(self.cd_layout, text='Choose a VM:', padx=10, pady=5)
-        self.cd_label.grid(row=0, column=0)
-        self.connect_dialogue.bind("<Return>", self.connect)
-        choices = tk.StringVar()
-        self.cd_choose_box = ttk.Combobox(self.cd_layout, textvariable=choices, height=3)
-        self.cd_choose_box.grid(row=0, column=1)
-        self.cd_connect = tk.Button(self.cd_layout, text="Connect", width=10, command=self.connect)
-        self.cd_connect.grid(row=1, column=1)
+        dialog = Gtk.Window()
+        dialog.set_title('Connect to a VM')
+        dialog.set_transient_for(self.window)
+        dialog.set_modal(True)
+        dialog.set_default_size(300, 100)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_start(10)
+        box.set_margin_end(10)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
+        dialog.set_child(box)
+
+        label = Gtk.Label(label='Choose a VM:')
+        box.append(label)
 
         # Get the domain names from the kvm hypervisor
+        domains = []
         try:
             self.kvm = libvirt.open("qemu:///session")
-            # Get the names of all running domains in the hypervisor.
             domains = [x.name() for x in self.kvm.listAllDomains()]
             if len(domains) == 0:
-                messagebox.showerror("No domains found", "Either the hypervisor is not running or no VMs available in the qemu:///session.")
-            self.cd_choose_box['values'] = domains
+                self.show_error_dialog("No domains found", "Either the hypervisor is not running or no VMs available in the qemu:///session.")
+                domains = []
         except libvirt.libvirtError:
-            messagebox.showerror("Error", "Failed to open connection to the hypervisor.")
-            self.cd_choose_box['values'] = []
+            self.show_error_dialog("Error", "Failed to open connection to the hypervisor.")
+            domains = []
 
-    def connect(self, event=None):
+        if not domains:
+            domains = ["No VMs available"]
+
+        combo = Gtk.DropDown.new_from_strings(domains)
+        combo.set_selected(0)
+        box.append(combo)
+
+        connect_btn = Gtk.Button(label="Connect")
+        connect_btn.connect('clicked', lambda btn: self.connect(combo, dialog, domains))
+        box.append(connect_btn)
+
+        dialog.present()
+
+    def connect(self, combo, dialog, domains):
         """ Update the status variable to let the application know about the VM. """
-        selected = self.cd_choose_box.get()
-        if not selected:
-            messagebox.showerror("No VM selected", "Please, select one of the available VMs.")
-        self.virtual_machine = selected
-        self.connect_dialogue.destroy()
-        self.vmEntry.delete("0", "end")
-        self.vmEntry.insert("end", self.virtual_machine)
+        selected_index = combo.get_selected()
+        selected = domains[selected_index] if selected_index < len(domains) else None
+        if not selected or selected == "No VMs available":
+            self.show_error_dialog("No VM selected", "Please, select one of the available VMs.")
+            return
 
-        
+        self.virtual_machine = selected
+        self.vmEntry.set_text(self.virtual_machine)
+        dialog.close()
+
     def takeScreenshot(self, event=None):
-        """ Take the screenshot from the running virtual machine. As only .ppm files
-        are possible, use imagemagick to convert the shot into a .png file and save
-        it. """
-        # When no VM has been previously selected, there is no need 
-        # to try and take screenshots.
+        """ Take the screenshot from the running virtual machine. """
         if not self.virtual_machine:
-            messagebox.showerror("No VM connected", "Connect a VM before you try taking screenshots from it. Use the CTRL-V key shortcut.")
-        # We have the running domain connected, so let's take the shot.
-        else:
-            # Use the domain name to get the domain object
-            domain = self.virtual_machine
-            domain = self.kvm.lookupByName(domain)
-            # Create a stream to the hypervisor
-            stream = self.kvm.newStream()
-            # Collect the available image type of the first screen
-            # On a VM usually only one screen is available, 
-            # so we will take the first one and will not bother
-            # about others.
-            image_type = domain.screenshot(stream, 0)
-            # The stream will be caught in an envelope
-            image_data = io.BytesIO()
-            # Now, let's take the data from the stream
+            self.show_error_dialog("No VM connected", "Connect a VM before you try taking screenshots from it. Use the CTRL-V key shortcut.")
+            return
+
+        # Get the domain object
+        domain = self.kvm.lookupByName(self.virtual_machine)
+        stream = self.kvm.newStream()
+        image_type = domain.screenshot(stream, 0)
+
+        # Collect the stream data
+        image_data = io.BytesIO()
+        part_stream = stream.recv(8192)
+        while part_stream != b'':
+            image_data.write(part_stream)
             part_stream = stream.recv(8192)
-            while part_stream != b'':
-                image_data.write(part_stream)
-                part_stream = stream.recv(8192)
-            # Convert and save the image
-            image_data.seek(0)
-            image = Image.open(image_data)
-            image.save("screenshot.png", 'PNG')
-            image_data.close()
-            stream.finish()
-            path = os.path.join(os.path.abspath('.'), 'screenshot.png')
-            self.imageName = "screenshot.png"
-            self.displayImage(path)
-            self.textField.delete("1.0", "end")
-            self.textField.insert("end", self.imageName)
+
+        # Convert and save the image
+        image_data.seek(0)
+        image = Image.open(image_data)
+        image.save("screenshot.png", 'PNG')
+        image_data.close()
+        stream.finish()
+
+        path = os.path.join(os.path.abspath('.'), 'screenshot.png')
+        self.imageName = "screenshot.png"
+        self.displayImage(path)
+
+        tags_buffer = self.textField.get_buffer()
+        tags_buffer.set_text(self.imageName)
+
+    def show_info_dialog(self, title, message):
+        """Show an information dialog."""
+        dialog = Gtk.AlertDialog()
+        dialog.set_message(title)
+        dialog.set_detail(message)
+        dialog.show(self.window)
+
+    def show_error_dialog(self, title, message):
+        """Show an error dialog."""
+        dialog = Gtk.AlertDialog()
+        dialog.set_message(title)
+        dialog.set_detail(message)
+        dialog.show(self.window)
 
 #-----------------------------------------------------------------------------------------------
 
@@ -678,15 +806,15 @@ class fileHandler:
                 self.jsonData = json.load(inFile)
         except FileNotFoundError:
             if self.jsonfile != "empty":
-                messagebox.showerror("Error", "No needle exists. Create one.")
+                print("Error: No needle exists. Create one.")
             else:
-                messagebox.showerror("Error", "No images are loaded. Select image directory.")
+                print("Error: No images are loaded. Select image directory.")
 
     def writeFile(self, jsonfile):
         """Take the data variable and write is out as a json file."""
         with open(jsonfile, "w") as outFile:
             json.dump(self.jsonData, outFile, indent=2)
-        messagebox.showinfo("Info", "The needle has been written out.")
+        print("Info: The needle has been written out.")
 
     def provideData(self):
         """Provide the json file."""
@@ -710,12 +838,12 @@ class needleData:
         """Provide properties."""
         properties = "\n".join(self.jsonData["properties"])
         return properties
-    
+
     def provideTags(self):
         """Provide tags."""
         tags = "\n".join(self.jsonData["tags"])
         return tags
-    
+
     def provideNextArea(self):
         """Provide information about the active area and move pointer to the next area for future reference."""
         try:
@@ -730,8 +858,9 @@ class needleData:
             areaData = [xpos, ypos, apos, bpos, typ]
             self.areaPos += 1
             return areaData
-        except IndexError:
-            messagebox.showerror("Error", "No more area in the needle.")
+        except (IndexError, KeyError):
+            print("Error: No more area in the needle.")
+            return None
 
     def update(self, coordinates, tags, props):
         """Update all information taken from the GUI in the data variable."""
@@ -749,13 +878,13 @@ class needleData:
             tags = [tags]
         self.jsonData["properties"] = props
         self.jsonData["tags"] = tags
-        
+
         try:
             self.areas[self.areaPos-1] = area
         except IndexError:
-            messagebox.showerror("Error", "Cannot modify non-existent area. Add area first!")
+            print("Error: Cannot modify non-existent area. Add area first!")
         self.jsonData["area"] = self.areas
-            
+
     def addArea(self):
         """Add new area to the needle (at the end of the list)."""
         self.areas.append("newarea")
@@ -768,7 +897,7 @@ class needleData:
             self.jsonData["area"] = self.areas
             self.areaPos -= 2
         except IndexError:
-            messagebox.showerror("Error", "No area in the needle. Not deleting anything.")
+            print("Error: No area in the needle. Not deleting anything.")
 
     def provideAreaCount(self):
         """Provide the number of the areas in the needle."""
@@ -783,15 +912,10 @@ def main(path=None):
         path = sys.argv[1]
     except IndexError:
         pass
-        
-    app = Application()
-    
-    if path != None:
-        app.acceptCliChoice(path)
-    
+
+    app = Application(cli_path=path)
     app.run()
 
 
 if __name__ == '__main__':
     main()
-
