@@ -9,8 +9,9 @@ readme = "README.rst"
 [tool.poetry.dependencies]
 python = "^3.10"
 needly = "^2.5.61"
+PyGObject = "^3.42.0"
 
-[tool.poetry.dev-dependencies]
+[tool.poetry.group.dev.dependencies]
 pytest = "^6.2"
 
 [build-system]
