@@ -278,7 +278,7 @@ class Application:
     def displayImage(self, path):
         """Display image on the canvas."""
         self.picture = Image.open(path)
-        irint("SELF_IMAGE",self.image)
+        print("SELF_IMAGE",self.image)
         self.picsize = (self.picture.width,self.picture.height)
         self.image = tk.PhotoImage(file=path)
         self.background = self.pictureField.create_image((1, 1), image=self.image, anchor='nw')
