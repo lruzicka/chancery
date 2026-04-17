@@ -88,7 +88,9 @@ class Application:
         self.window.set_child(main_box)
 
         # Create menu bar
-        self.create_menu_bar()
+        menu_model = self.create_menu_bar()
+        menubar = Gtk.PopoverMenuBar.new_from_model(menu_model)
+        main_box.append(menubar)
 
         # Content area (horizontal split)
         content_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
@@ -253,10 +255,10 @@ class Application:
         help_menu.append("About", "app.about")
         menubar.append_submenu("Help", help_menu)
 
-        self.app.set_menubar(menubar)
-
         # Register all actions
         self.register_actions()
+
+        return menubar
 
     def register_actions(self):
         """Register all menu actions."""
