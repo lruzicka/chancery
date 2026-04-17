@@ -606,6 +606,8 @@ class Application:
         buffer.insert_at_cursor(text)
         self.is_saved = False
         self.update_title('unsave')
+        # Return focus to the text editor
+        self.text.grab_focus()
 
     def database(self, family, record):
         """Get a snippet from the testapi database."""
