@@ -22,7 +22,8 @@
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
-from gi.repository import Gtk, Gdk, Gio, GLib, Pango
+gi.require_version('GtkSource', '5')
+from gi.repository import Gtk, Gdk, Gio, GLib, Pango, GtkSource
 
 import io
 import json
@@ -479,23 +480,39 @@ class Application:
         self.args_on = self.args_check.get_active()
 
     def create_text(self, parent):
-        """Create the text widget."""
+        """Create the text widget with syntax highlighting."""
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_hexpand(True)
         scrolled.set_vexpand(True)
         scrolled.set_min_content_width(600)
 
-        self.text = Gtk.TextView()
+        # Create source view with syntax highlighting
+        self.text = GtkSource.View()
         self.text.set_wrap_mode(Gtk.WrapMode.NONE)
         self.text.set_monospace(True)
+        self.text.set_show_line_numbers(True)
+        self.text.set_highlight_current_line(True)
+        self.text.set_auto_indent(True)
+        self.text.set_indent_width(4)
+        self.text.set_tab_width(4)
 
-        # Set tab width to 4 spaces
-        tab_array = Pango.TabArray(initial_size=1, positions_in_pixels=True)
-        tab_array.set_tab(0, Pango.TabAlign.LEFT, 32)  # 32 pixels = ~4 spaces
-        self.text.set_tabs(tab_array)
+        # Set up syntax highlighting for Perl
+        buffer = GtkSource.Buffer()
+        lang_manager = GtkSource.LanguageManager.get_default()
+        perl_lang = lang_manager.get_language('perl')
+        if perl_lang:
+            buffer.set_language(perl_lang)
+            buffer.set_highlight_syntax(True)
+
+        # Set color scheme
+        style_manager = GtkSource.StyleSchemeManager.get_default()
+        scheme = style_manager.get_scheme('classic')
+        if scheme:
+            buffer.set_style_scheme(scheme)
+
+        self.text.set_buffer(buffer)
 
         # Connect text change signal
-        buffer = self.text.get_buffer()
         buffer.connect('changed', self.on_text_changed)
 
         scrolled.set_child(self.text)
